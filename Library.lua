@@ -29,11 +29,11 @@ local Library = {
 
     HudRegistry = {};
 
-    FontColor = Color3.fromRGB(255, 255, 255);
-    MainColor = Color3.fromRGB(29, 23, 66);
-    BackgroundColor = Color3.fromRGB(25, 29, 53);
-    AccentColor = Color3.fromRGB(127, 16, 166);
-    OutlineColor = Color3.fromRGB(60, 53, 93);
+    FontColor = Color3.fromRGB(221, 221, 221);
+    MainColor = Color3.fromRGB(30, 30, 30);
+    BackgroundColor = Color3.fromRGB(35, 35, 35);
+    AccentColor = Color3.fromRGB(118, 0, 0);
+    OutlineColor = Color3.fromRGB(20, 20, 20);
     RiskColor = Color3.fromRGB(255, 50, 50),
 
     Black = Color3.new(0, 0, 0);
@@ -3533,7 +3533,7 @@ function Library:CreateWindow(...)
                 local CursorOutline = Drawing.new('Triangle');
                 CursorOutline.Thickness = 1;
                 CursorOutline.Filled = false;
-                CursorOutline.Color = Color3.new(0, 0, 0);
+                CursorOutline.Color = Color3.new(255, 255, 255);
                 CursorOutline.Visible = true;
 
                 while Toggled and ScreenGui.Parent do
