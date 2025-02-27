@@ -1,0 +1,706 @@
+local repo = 'https://raw.githubusercontent.com/Whisperware/Linoria-Modified/main/'
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+--// Services
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local player = Players.LocalPlayer
+local gameName = MarketplaceService:GetProductInfo(game.PlaceId).Name
+local robloxAccount = player.Name
+
+local Window = Library:CreateWindow({
+    Title = string.format("<%s> | <%s> | LEGACY | Developer", gameName, robloxAccount),
+    Center = true,
+    AutoShow = true,
+    TabPadding = 0,
+    MenuFadeTime = 0.1
+})
+local Tabs = {
+    Combatsmain = Window:AddTab('Combats'),
+    Visualmain = Window:AddTab('Visuals'),
+    Miscmain = Window:AddTab('Miscellaneous'),
+    ['UI Settings'] = Window:AddTab('UI Settings'),
+}
+
+local combatdiv = Tabs.Combatsmain:AddLeftTabbox()
+    local combatmain = combatdiv:AddTab("Aim")
+    local combatrage = combatdiv:AddTab("Silent")
+local combatsec = Tabs.Combatsmain:AddRightGroupbox('SCRY')
+local TargetPartBox = Tabs.Combatsmain:AddLeftTabbox()
+    local TargetPartSelected = TargetPartBox:AddTab("Target")
+    local TargetPartSelection = TargetPartBox:AddTab("Selection")
+    local PlayerManagement = TargetPartBox:AddTab("Player")
+    local TeamManagement = TargetPartBox:AddTab("Team")
+local combatvisual = Tabs.Combatsmain:AddLeftTabbox()
+    local FOVSection = combatvisual:AddTab("FOV")
+    local DeadzoneFOVSection = combatvisual:AddTab("Deadzone")
+local combatstrafe = Tabs.Combatsmain:AddRightGroupbox('SRFE')
+--
+local visualesp = Tabs.Visualmain:AddLeftGroupbox('PMRY')
+local visualoption = Tabs.Visualmain:AddRightGroupbox('OPTN')
+local visualworld = Tabs.Visualmain:AddLeftGroupbox('WRLD')
+local visualchams = Tabs.Visualmain:AddRightGroupbox('CHMS')
+local visualarrows = Tabs.Visualmain:AddLeftGroupbox('ARWS')
+local visualmisc = Tabs.Visualmain:AddRightGroupbox('MSC')
+
+
+---
+Library:Notify("Loading combatics..")
+-- // Combat part
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local Teams = game:GetService("Teams")
+local RaycastParams = RaycastParams.new()
+RaycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+getgenv().lythaim = {
+    AimingSettings = {
+        Selected = LocalPlayer,
+        SelectedPart = nil,
+        IgnoreFriends = false,
+        AimingSettingsIgnored = { Players = {}, Teams = {} },
+        TargetPart = {
+            "Head", "UpperTorso", "HumanoidRootPart", "LowerTorso",
+            "LeftHand", "RightHand", "LeftLowerArm", "RightLowerArm",
+            "LeftUpperArm", "RightUpperArm", "LeftLowerLeg", 
+            "LeftUpperLeg", "RightLowerLeg", "RightUpperLeg"
+        },
+        BlacklistedPlayers = {LocalPlayer},
+        WhitelistedPUIDs = {91318356},
+    }
+}
+
+local target
+local AimlockF = false
+local APrediction = 0
+local AStiffness = 0.2
+local Aim_method = "Mouse"
+local Target_method = "Cursor"
+local WallcheckEnabled = false
+local LockMode = false
+local UnlockBind = nil
+
+local function isIgnored(player)
+    if player == LocalPlayer then return true end
+    if table.find(lythaim.AimingSettings.BlacklistedPlayers, player) then return true end
+    if lythaim.AimingSettings.IgnoreFriends and LocalPlayer:IsFriendsWith(player.UserId) then return true end
+    if table.find(lythaim.AimingSettings.AimingSettingsIgnored.Players, player) then return true end
+    if lythaim.AimingSettings.AimingSettingsIgnored.IgnoreLocalTeam and player.Team == LocalPlayer.Team then return true end
+    if table.find(lythaim.AimingSettings.AimingSettingsIgnored.Teams, player.Team) then return true end
+    return false
+end
+
+local function isVisible(targetPart)
+    if not WallcheckEnabled then return true end
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin).unit * (targetPart.Position - origin).magnitude
+    local result = workspace:Raycast(origin, direction, RaycastParams)
+    return not result or result.Instance:IsDescendantOf(targetPart.Parent)
+end
+
+local function findTarget()
+    if LockMode and target then return end
+    
+    local closestPlayer
+    local shortestDistance = math.huge
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Character and not isIgnored(player) then
+            for _, partName in ipairs(lythaim.AimingSettings.TargetPart) do
+                local part = player.Character:FindFirstChild(partName)
+                if part and isVisible(part) then
+                    local predictedPosition = part.Position + (part.Velocity * APrediction)
+                    local screenPosition, onScreen = Camera:WorldToScreenPoint(predictedPosition)
+                    
+                    if onScreen then
+                        local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+                        if distance < shortestDistance then
+                            shortestDistance = distance
+                            closestPlayer = player
+                            lythaim.AimingSettings.SelectedPart = part
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    if closestPlayer then
+        target = lythaim.AimingSettings.SelectedPart
+    else
+        target = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if AimlockF then
+        findTarget()
+        if target then
+            local predictedPosition = target.Position + (target.Velocity * APrediction)
+            if Aim_method == "Mouse" then
+                local screenPosition = Camera:WorldToScreenPoint(predictedPosition)
+                local moveX = (screenPosition.X - Mouse.X) * AStiffness
+                local moveY = (screenPosition.Y - Mouse.Y) * AStiffness
+                mousemoverel(moveX, moveY)
+            elseif Aim_method == "Camera" then
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPosition)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, math.clamp(AStiffness, 0.05, 1))
+            end
+        end
+    end
+end)
+--// Combats
+combatmain:AddToggle('aim_main', {
+    Text = 'Enable',
+    Default = false,
+    Tooltip = "Toggle The Aiming System",
+    Callback = function(value)
+        AimlockF = value
+    end
+}):AddKeyPicker('amkey', {
+    Default = '?',
+    SyncToggleState = true,
+    Mode = 'Toggle',
+    Text = 'Aim Key',
+    NoUI = false,
+    Callback = function(state)
+        Aimkey = state
+    end
+})
+--[[combatmain:AddToggle('as_main', {
+    Text = 'Auto-Shoot (WIP)',
+    Default = false,
+    Tooltip = "Toggle the Auto-Shooting feature automatically shooting for you",
+    Callback = function(value)
+    end
+}):AddKeyPicker('askey', {
+    Default = '?',
+    SyncToggleState = true,
+    Mode = 'Toggle',
+    Text = 'AS Key',
+    NoUI = false,
+})]]
+combatmain:AddDropdown("aim_method", {
+    Values = {"Camera", "Mouse"},
+    Default = Aim_method,
+    Multi = false,
+    Text = "Method",
+    Tooltip = "Chosen value is the used aiming type.",
+    Callback = function(value)
+        Aim_method = ("%s"):format(value)
+    end
+})
+combatmain:AddDropdown("Target_method", {
+    Values = {"Cursor", "Nearest"},
+    Default = Target_method,
+    Multi = false,
+    Text = "Target",
+    Tooltip = "Chosen value is the used Target type.",
+    Callback = function(value)
+        Target_method = ("%s"):format(value)
+    end
+})
+--[[combatmain:AddSlider("asdelay_main", {
+    Text = "Autoshoot Delay (WIP)",
+    Tooltip = "The higher value will increase the delay by seconds.",
+    Default = 0,
+    Min = 0,
+    Max = 100,
+    Suffix = "ms",
+    Rounding = 1,
+    Callback = function(Value)
+    end
+})]]
+--
+combatsec:AddSlider("Predictionvalue", {
+    Text = "Prediction",
+    Tooltip = "The prediction add's better performance in aiming.",
+    Default = APrediction,
+    Min = 0,
+    Max = 1,
+    Rounding = 2,
+    Callback = function(Value)
+        APrediction = Value
+    end
+})
+combatsec:AddSlider("Predictionvalue", {
+    Text = "Stiffness",
+    Tooltip = "Stiffness is the higher the stiffer.",
+    Default = 0,
+    Min = 0,
+    Max = 1,
+    Rounding = 2,
+    Callback = function(Value)
+        AStiffness = Value
+    end
+})
+--// Filters
+--[[combatsec:AddToggle('checks_main', {
+    Text = 'Enable(WIP)',
+    Default = false,
+    Tooltip = "Triggering the checkers.",
+    Callback = function(enabled) end
+})]]
+combatsec:AddToggle("AimingLocktoggle", {
+    Text = "Lock players",
+    Default = false,
+    Tooltip = "Your target will remain locked until the key is triggered",
+    Callback = function(Value)
+        LockMode = Value
+    end
+}):AddKeyPicker("AimingLockModeUnlock", {
+    Text = "Unlock",
+    Default = "?",
+    SyncToggleState = true,
+    ChangedCallback = function(NewKey)
+        UnlockBind = NewKey
+    end
+})
+combatsec:AddToggle("AimingVisibleCheck", {
+    Text = "Visibility Check",
+    Default = false,
+    Tooltip = "Makes sure targets are within LoS",
+    Callback = function(enabled)
+        WallcheckEnabled = enabled
+    end
+})
+combatsec:AddToggle("AimingPlayerCheck", {
+    Text = "Player Check",
+    Default = false,
+    Tooltip = "Check if a player is ignored",
+    Callback = function(Value)
+        PlayerCheckEnabled = Value
+    end
+})
+combatsec:AddToggle("AimingForcefieldCheck", {
+    Text = "Forcefield Check",
+    Default = false,
+    Tooltip = "Makes sure targets do not have a forcefield",
+    Callback = function(Value)
+        ForcefieldCheckEnabled = Value
+    end
+})
+combatsec:AddToggle("AimingHealthCheck", {
+    Text = "Health Check",
+    Default = false,
+    Tooltip = "Makes sure targets are alive",
+    Callback = function(Value)
+        HealthCheckEnabled = Value
+    end
+})
+combatsec:AddToggle("AimingInvisibleCheck", {
+    Text = "Invisible Check",
+    Default = false,
+    Tooltip = "Makes sure targets are visible to the eye",
+    Callback = function(Value)
+        InvisibleCheckEnabled = Value
+    end
+})
+combatsec:AddToggle("AimingIgnoredCheck", {
+    Text = "Ignored Check",
+    Default = false,
+    Tooltip = "Toggle all ignored checks",
+    Callback = function(Value)
+        IgnoredCheckEnabled = Value
+    end
+})
+--
+local TargetPartA = TargetPartSelected:AddDropdown("AimingTargetPartSelected", {
+    Values = lythaim.AimingSettings.TargetPart,
+    Default = 1,
+    Multi = false,
+    Text = "Selected Targets",
+    Tooltip = "These are the currently chosen parts"
+})
+TargetPartSelected:AddButton("Add Target", function()
+    local TargetPart = TargetPartA.Value
+    if table.find(lythaim.AimingSettings.TargetPart, TargetPart) then
+        return Library:Notify("Already added", 3)
+    end
+    table.insert(lythaim.AimingSettings.TargetPart, TargetPart)
+    TargetPartA:SetValues(lythaim.AimingSettings.TargetPart)
+end)
+TargetPartSelected:AddButton("Remove Target", function()
+    local TargetPart = TargetPartA.Value
+    local TargetPartI = table.find(lythaim.AimingSettings.TargetPart, TargetPart)
+    if not TargetPartI then
+        return Library:Notify("Not already added", 3)
+    end
+    table.remove(lythaim.AimingSettings.TargetPart, TargetPartI)
+    TargetPartA:SetValues(lythaim.AimingSettings.TargetPart)
+end)
+--//
+local TargetPartB = TargetPartSelection:AddDropdown("AimingTargetPartSelection", {
+    Values = lythaim.AimingSettings.TargetPart,
+    Default = 1,
+    Multi = false,
+    Text = "Select Body Parts",
+    Tooltip = "These are the POSSIBLE target parts"
+})
+--
+TargetPartSelection:AddButton("Add", function()
+    local TargetPart = TargetPartB.Value
+    if table.find(lythaim.AimingSettings.TargetPart, TargetPart) then
+        return Library:Notify("Already added", 3)
+    end
+    table.insert(lythaim.AimingSettings.TargetPart, TargetPart)
+    TargetPartB:SetValues(lythaim.AimingSettings.TargetPart)
+end)
+TargetPartSelection:AddButton("Remove", function()
+    local TargetPart = TargetPartB.Value
+    local TargetPartI = table.find(lythaim.AimingSettings.TargetPart, TargetPart)
+    if not TargetPartI then
+        return Library:Notify("Not already added", 3)
+    end
+    table.remove(lythaim.AimingSettings.TargetPart, TargetPartI)
+    TargetPartB:SetValues(lythaim.AimingSettings.TargetPart)
+end)
+-- // [[[[[]]]]] \\ --
+local PlayerDropdown = PlayerManagement:AddDropdown("AimingIgnoredPlayerDropdown", {
+    Default = 2,
+    Multi = false,
+    Text = "Select Player",
+    Tooltip = "These are the current players",
+    SpecialType = "Player"
+})
+PlayerManagement:AddToggle("AimingIgnoreFriends", {
+    Text = "Ignore Friends",
+    Default = lythaim.AimingSettings.IgnoreFriends,
+    Tooltip = "Ignores your Roblox friends",
+    Callback = function(Value)
+        lythaim.AimingSettings.IgnoreFriends = Value
+    end
+})
+--
+PlayerManagement:AddButton("Ignore", function()
+    local Player = Players:FindFirstChild(PlayerDropdown.Value)
+    if not Player then
+        return Library:Notify("Player does not exist", 3)
+    end
+    if not table.find(lythaim.AimingSettings.AimingSettingsIgnored.Players, Player) then
+        table.insert(lythaim.AimingSettings.AimingSettingsIgnored.Players, Player)
+        Library:Notify("Player ignored", 3)
+    else
+        Library:Notify("Player already ignored", 3)
+    end
+end)
+PlayerManagement:AddButton("Unignore", function()
+    local Player = Players:FindFirstChild(PlayerDropdown.Value)
+    if not Player then
+        return Library:Notify("Player does not exist", 3)
+    end
+    local PlayerI = table.find(lythaim.AimingSettings.AimingSettingsIgnored.Players, Player)
+    if PlayerI then
+        table.remove(lythaim.AimingSettings.AimingSettingsIgnored.Players, PlayerI)
+        Library:Notify("Player unignored", 3)
+    else
+        Library:Notify("Player not ignored", 3)
+    end
+end)
+-- // \\ --
+local TeamDropdown = TeamManagement:AddDropdown("AimingIgnoredTeamsDropdown", {
+    Default = 1,
+    Multi = false,
+    Text = "Select Team",
+    Tooltip = "These are the current teams",
+    SpecialType = "Team"
+})
+TeamManagement:AddToggle("AimingIgnoreLocalTeam", {
+    Text = "Ignore Plr Team",
+    Default = lythaim.AimingSettings.AimingSettingsIgnored.IgnoreLocalTeam or false,
+    Tooltip = "Ignores the local team",
+    Callback = function(Value)
+        lythaim.AimingSettings.AimingSettingsIgnored.IgnoreLocalTeam = Value
+    end
+})
+--
+TeamManagement:AddButton("Ignore", function()
+    local Team = Teams:FindFirstChild(TeamDropdown.Value)
+    if not Team then
+        return Library:Notify("Team does not exist", 3)
+    end
+    if not table.find(lythaim.AimingSettings.AimingSettingsIgnored.Teams, Team) then
+        table.insert(lythaim.AimingSettings.AimingSettingsIgnored.Teams, Team)
+        Library:Notify("Team ignored", 3)
+    else
+        Library:Notify("Team already ignored", 3)
+    end
+end)
+TeamManagement:AddButton("Unignore", function()
+    local Team = Teams:FindFirstChild(TeamDropdown.Value)
+    if not Team then
+        return Library:Notify("Team does not exist", 3)
+    end
+    local TeamI = table.find(lythaim.AimingSettings.AimingSettingsIgnored.Teams, Team)
+    if TeamI then
+        table.remove(lythaim.AimingSettings.AimingSettingsIgnored.Teams, TeamI)
+        Library:Notify("Team unignored", 3)
+    else
+        Library:Notify("Team not ignored", 3)
+    end
+end)
+-------------------
+    FOVSection:AddToggle("AimingFOVEnabled", {
+        Text = "Enabled",
+        Default = false,
+        Tooltip = "Toggle the FOV circle's functionality",
+        Callback = function(Value)
+            FOVMain = Value
+        end
+    }):AddColorPicker("AimingFOVColour", {
+        Text = "Colour",
+        Default = Color3.new(1, 1, 1),
+        Tooltip = "The colour of the FOV circle",
+        Callback = function(Value)
+            CFOVcolor = Value
+        end
+    })
+    FOVSection:AddToggle("AimingFOVVisible", {
+        Text = "Visible",
+        Default = false,
+        Tooltip = "Toggle the FOV circle's visibility",
+        Callback = function(Value)
+            DFOVVisible = Value
+            FOVCircle.Visible = Value
+        end
+    })
+    FOVSection:AddSlider("AimingFOVScale", {
+        Text = "Scale",
+        Tooltip = "The size of the FOV circle",
+        Default = 0,
+        Min = 0,
+        Max = 360,
+        Rounding = 1,
+        Callback = function(Value)
+            FOVRadius = Value
+        end
+    })
+    FOVSection:AddDropdown("AimingFOVType", {
+        Text = "Type",
+        Tooltip = "Whether the FOV scales with distance (disables scale, if dynamic)",
+        Default = "Static",
+        Multi = false,
+        Values = {"Static", "Dynamic"},
+        Callback = function(Value)
+        end
+    })
+    FOVSection:AddSlider("AimingFOVDConstant", {
+        Text = "Dynamic Constant",
+        Tooltip = "The constant for the dynamic FOV circle",
+        Default = 50,
+        Min = 1,
+        Max = 100,
+        Rounding = 1,
+        Callback = function(Value)
+        end
+    })
+FOVSection:AddDivider() -- //
+    FOVSection:AddToggle("AimingTracerEnabled", {
+        Text = "[Unavailable]",
+        Default = false,
+        Tooltip = "Toggle the tracer on and off",
+        Callback = function(Value)
+        end
+    }):AddColorPicker("AimingTracerColour", {
+        Text = "Colour",
+        Default = Color3.new(1, 1, 1),
+        Tooltip = "The colour of the tracer",
+        Callback = function(Value)
+        end
+    })
+    -- //
+    DeadzoneFOVSection:AddToggle("AimingDFOVEnabled", {
+        Text = "[Unavailable]",
+        Default = false,
+        Tooltip = "Toggle the deadzone circle's functionality",
+        Callback = function(Value)
+        end
+    })
+    DeadzoneFOVSection:AddToggle("AimingDFOVVisible", {
+        Text = "Visible",
+        Default = false,
+        Tooltip = "Toggle the deadzone circle's visibility",
+        Callback = function(Value)
+        end
+    }):AddColorPicker("AimingDFOVColour", {
+        Text = "Colour",
+        Default = Color3.new(1, 1, 1),
+        Tooltip = "The colour of the deadzone circle",
+        Callback = function(Value)
+        end
+    })
+    DeadzoneFOVSection:AddSlider("AimingDFOVScale", {
+        Text = "Scale",
+        Tooltip = "The size of the deadzone circle",
+        Default = 0,
+        Min = 0,
+        Max = 50,
+        Rounding = 1,
+        Callback = function(Value)
+        end
+    })
+--
+
+combatstrafe:AddToggle('targetstrafe', {
+    Text = '[Unavailable]',
+    Default = false,
+    Callback = function(enabled)
+        TargetStrafe = enabled
+    end
+}):AddKeyPicker('origstrafe', {
+    Default = '?',
+    SyncToggleState = true,
+    Mode = 'Toggle',
+    Text = 'Strafekey',
+    NoUI = false,
+    Callback = function(Value)
+    end
+})
+combatstrafe:AddDropdown('strafeMode', {
+    Text = 'Method',
+    Default = 'Circular',
+    Values = {'Circular', 'Zig-Zag', 'Adaptive'},
+    Callback = function(value)
+        strafeMode = value
+    end
+})
+combatstrafe:AddToggle('autoSwitchTarget', {
+    Text = 'Auto Switch',
+    Default = true,
+    Callback = function(enabled)
+        autoSwitchTarget = enabled
+    end
+})
+combatstrafe:AddSlider('strafeDistance', {
+    Text = 'Distance',
+    Min = 1,
+    Max = 50,
+    Default = 10,
+    Rounding = 0,
+    Callback = function(value)
+        strafeDistance = value
+    end
+})
+combatstrafe:AddSlider('strafeSpeed', {
+    Text = 'Speed',
+    Min = -10,
+    Max = 10,
+    Default = 5,
+    Rounding = 0,
+    Callback = function(value)
+        strafeSpeed = value
+    end
+})
+combatstrafe:AddDivider('')
+combatstrafe:AddToggle('airstrafe', {
+    Text = '[Unavailable]',
+    Default = false,
+    Callback = function(enabled)
+        end
+}):AddKeyPicker('strafeairkey', {
+    Default = '?',
+    SyncToggleState = true,
+    Mode = 'Toggle',
+    Text = 'AirStrafeKey',
+    NoUI = false,
+    Callback = function(Value)
+    end
+})
+combatstrafe:AddSlider('X-Strafe', {
+    Text = 'X',
+    Min = -10,
+    Max = 10,
+    Default = 5,
+    Rounding = 0,
+    Callback = function(value)
+    end
+})combatstrafe:AddSlider('Y-Strafe', {
+    Text = 'Y',
+    Min = -10,
+    Max = 10,
+    Default = 5,
+    Rounding = 0,
+    Callback = function(value)
+    end
+})combatstrafe:AddSlider('Z-Strafe', {
+    Text = 'Z',
+    Min = -10,
+    Max = 10,
+    Default = 5,
+    Rounding = 0,
+    Callback = function(value)
+    end
+})
+combatstrafe:AddDivider("")
+combatstrafe:AddToggle('Visualizerstrafe', {
+    Text = 'Visualizer',
+    Default = true,
+    Callback = function(enabled)
+        visualizermain = enabled
+    end
+})
+combatstrafe:AddSlider('strafevisual', {
+    Text = 'Visualizer limit',
+    Min =  0,
+    Max = 50,
+    Default = 10,
+    Rounding = 0,
+    Callback = function(value)
+        visualizertimer = value
+    end
+})
+
+Library:Notify("STTS: 🟢")
+Library:SetWatermarkVisibility(false)
+
+local FrameTimer = tick()
+local FrameCounter = 0;
+local FPS = 60;
+
+local discordUsername = "DiscordUsernameTest#6969"
+local timeWithTimezone = os.date("%H:%M:%S | %Z")
+local date = os.date("%Y-%m-%d")
+local playerName = game.Players.LocalPlayer.Name 
+
+local WatermarkConnection = game:GetService('RunService').RenderStepped:Connect(function()
+    FrameCounter += 1;
+
+    if (tick() - FrameTimer) >= 1 then
+        FPS = FrameCounter;
+        FrameTimer = tick();
+        FrameCounter = 0;
+    end;
+
+Library:SetWatermark(('Universal | %s / %s | %s | %s | gg.LythriaSol'):format(discordUsername, playerName, date, timeWithTimezone));
+end);
+
+Library.KeybindFrame.Visible = false;
+
+Library:OnUnload(function()
+    WatermarkConnection:Disconnect()
+
+    print('Unloaded!')
+    Library.Unloaded = true
+end)
+
+local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
+MenuGroup:AddButton('Unload', function() Library:Unload() end)
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'End', NoUI = true, Text = 'Menu keybind' })
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+ThemeManager:SetFolder('MyScriptHub')
+SaveManager:SetFolder('MyScriptHub/specific-game')
+SaveManager:BuildConfigSection(Tabs['UI Settings'])
+ThemeManager:ApplyToTab(Tabs['UI Settings'])
+SaveManager:LoadAutoloadConfig()
